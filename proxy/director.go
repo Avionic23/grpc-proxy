@@ -3,11 +3,6 @@
 
 package proxy
 
-import (
-	"context"
-	"google.golang.org/grpc"
-)
-
 // StreamDirector returns a gRPC ClientConn to be used to forward the call to.
 //
 // The presence of the `Context` allows for rich filtering, e.g. based on Metadata (headers).
@@ -21,4 +16,4 @@ import (
 // are invoked. So decisions around authorization, monitoring etc. are better to be handled there.
 //
 // See the rather rich example.
-type StreamDirector func(ctx context.Context, fullMethodName string) (context.Context, *grpc.ClientConn, error)
+type StreamDirector func() string

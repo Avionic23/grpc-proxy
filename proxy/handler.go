@@ -5,12 +5,13 @@ package proxy
 
 import (
 	"context"
-	"io"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"io"
 )
 
 var (
@@ -62,17 +63,23 @@ func (s *handler) handler(srv interface{}, serverStream grpc.ServerStream) error
 	if !ok {
 		return status.Errorf(codes.Internal, "lowLevelServerStream not exists in context")
 	}
-	// We require that the director's returned context inherits from the serverStream.Context().
-	outgoingCtx, backendConn, err := s.director(serverStream.Context(), fullMethodName)
+	addr := s.director()
+	// copy metadata from incoming to outgoing context
+	md, _ := metadata.FromIncomingContext(serverStream.Context())
+	outCtx := metadata.NewOutgoingContext(serverStream.Context(), md.Copy())
+	// dial grpc connection for the upcoming stream
+	conn, err := grpc.DialContext(outCtx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
+		s.errorHandler(addr)
 		return err
 	}
-	defer backendConn.Close()
-	clientCtx, clientCancel := context.WithCancel(outgoingCtx)
+	defer conn.Close()
+	clientCtx, clientCancel := context.WithCancel(outCtx)
 	defer clientCancel()
 	// TODO(mwitkow): Add a `forwarded` header to metadata, https://en.wikipedia.org/wiki/X-Forwarded-For.
-	clientStream, err := grpc.NewClientStream(clientCtx, clientStreamDescForProxying, backendConn, fullMethodName)
+	clientStream, err := grpc.NewClientStream(clientCtx, clientStreamDescForProxying, conn, fullMethodName)
 	if err != nil {
+		s.errorHandler(addr)
 		return err
 	}
 	// Explicitly *do not close* s2cErrChan and c2sErrChan, otherwise the select below will not terminate.
@@ -93,7 +100,7 @@ func (s *handler) handler(srv interface{}, serverStream grpc.ServerStream) error
 				// to cancel the clientStream to the backend, let all of its goroutines be freed up by the CancelFunc and
 				// exit with an error to the stack
 				clientCancel()
-				s.errorHandler(backendConn)
+				s.errorHandler(addr)
 				return status.Errorf(codes.Internal, "failed proxying s2c: %v", s2cErr)
 			}
 		case c2sErr := <-c2sErrChan:
@@ -103,7 +110,7 @@ func (s *handler) handler(srv interface{}, serverStream grpc.ServerStream) error
 			serverStream.SetTrailer(clientStream.Trailer())
 			// c2sErr will contain RPC error from client code. If not io.EOF return the RPC error as server stream error.
 			if c2sErr != io.EOF {
-				s.errorHandler(backendConn)
+				s.errorHandler(addr)
 				return c2sErr
 			}
 			return nil
