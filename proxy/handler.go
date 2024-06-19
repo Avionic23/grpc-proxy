@@ -64,16 +64,16 @@ func (s *handler) handler(srv interface{}, serverStream grpc.ServerStream) error
 		return status.Errorf(codes.Internal, "lowLevelServerStream not exists in context")
 	}
 	addr := s.director()
-	// copy metadata from incoming to outgoing context
-	md, _ := metadata.FromIncomingContext(serverStream.Context())
-	outCtx := metadata.NewOutgoingContext(serverStream.Context(), md.Copy())
 	// dial grpc connection for the upcoming stream
-	conn, err := grpc.DialContext(outCtx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.DialContext(serverStream.Context(), addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		s.errorHandler(addr)
 		return err
 	}
 	defer conn.Close()
+	// copy metadata from incoming to outgoing context
+	md, _ := metadata.FromIncomingContext(serverStream.Context())
+	outCtx := metadata.NewOutgoingContext(serverStream.Context(), md.Copy())
 	clientCtx, clientCancel := context.WithCancel(outCtx)
 	defer clientCancel()
 	// TODO(mwitkow): Add a `forwarded` header to metadata, https://en.wikipedia.org/wiki/X-Forwarded-For.
