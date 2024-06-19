@@ -4,10 +4,7 @@
 package proxy
 
 import (
-	"context"
-
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 )
 
 // NewProxy sets up a simple proxy that forwards all requests to dst.
@@ -25,13 +22,11 @@ func DefaultProxyOpt(cc *grpc.ClientConn) grpc.ServerOption {
 // DefaultDirector returns a very simple forwarding StreamDirector that forwards all
 // calls.
 func DefaultDirector(cc *grpc.ClientConn) StreamDirector {
-	return func(ctx context.Context, fullMethodName string) (context.Context, *grpc.ClientConn, error) {
-		md, _ := metadata.FromIncomingContext(ctx)
-		ctx = metadata.NewOutgoingContext(ctx, md.Copy())
-		return ctx, cc, nil
+	return func() string {
+		return cc.Target()
 	}
 }
 
 func DefaultErrorHandler() ErrorHandler {
-	return func(conn *grpc.ClientConn) {}
+	return func(addr string) {}
 }
